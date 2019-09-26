@@ -1,0 +1,55 @@
+#!/bin/sh
+
+cleanup() {
+	cd ../..
+	git checkout master
+	git reset --hard HEAD
+}
+
+if [ "$#" -ne 3 ]; then
+    echo "Illegal number of parameters"
+    exit
+fi
+echo 'Preparing for updates..'
+git checkout master
+git checkout -b $2-$3
+apk update >/dev/null 2>&1
+cd $1/$2
+
+echo "Updating the package version to $3"
+sed -i "s/^pkgver=.*/pkgver=$3/g" APKBUILD
+
+echo "Updating the package release to 0"
+sed -i "s/^pkgrel=.*/pkgrel=0/g" APKBUILD
+
+echo "Checking for linting errors..."
+apkbuild-lint APKBUILD
+
+echo "Fixing linting errors..."
+apkbuild-fixer APKBUILD
+
+echo "Printing Diff..."
+git diff APKBUILD
+
+echo "Calculating checksums for sources.."
+abuild checksum
+
+if [ $? -ne 0 ]; then
+    echo "Calculating checksums failed. Exiting."
+    cleanup
+    exit 1
+fi
+
+echo "Building package $2-$3r0.apk ..."
+abuild -r
+
+if [ $? -ne 0 ]; then
+    echo "Building package failed. Exiting."
+    cleanup
+    exit 1
+fi
+
+git add APKBUILD
+git commit -m"$1/$2: upgrade to $3"
+git push -u origin $2-$3
+hub pull-request
